@@ -19,6 +19,8 @@ OnesDigitOffset word        ; lookup table offset for the score Ones digit
 TensDigitOffset word        ; lookup table offset for the score Tens digit
 ScoreP0Sprite   byte        ; store the sprite bit pattern for the scoreP0
 ScoreP1Sprite   byte        ; store the sprite bit pattern for the scoreP1
+BGColor         byte        ; store the color of the background
+DigitsColor     byte        ; store the color of the score
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Define constants
@@ -37,9 +39,13 @@ Reset:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Initialize variables
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-    lda #0
+    lda #0                  ; initialize scores with 0
     sta ScoreP0
     sta ScoreP1
+    lda #$00
+    sta DigitsColor         ; initialize digits color to dark grey
+    lda #$0F
+    sta BGColor             ; initialize background color to dark grey
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Start the main display loop and frame rendering
@@ -77,8 +83,11 @@ StartFrame:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Display the scoreboard lines
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-    lda #0                   ; reset TIA registers before displaying the score
+    lda BGColor            ; reset TIA registers before displaying the score
     sta COLUBK
+    lda DigitsColor
+    sta COLUPF              ; set the scoreboard playfield the digits-color
+    lda #0
     sta PF0
     sta PF1
     sta PF2
@@ -86,54 +95,51 @@ StartFrame:
     sta GRP1
     sta CTRLPF
 
-    lda #$1E
-    sta COLUPF               ; set the scoreboard playfield color with yellow
-
-    ldx #DIGITS_HEIGHT       ; start X counter with 5 (height of digits)
+    ldx #DIGITS_HEIGHT      ; start X counter with 5 (height of digits)
 
 .ScoreDigitLoop:
-    ldy TensDigitOffset      ; get the tens digit offset for the Score
-    lda Digits,Y             ; load the bit pattern from lookup table
-    and #$F0                 ; mask/remove the graphics for the ones digit
-    sta ScoreP0Sprite        ; save the scoreP0 tens digit pattern in a variable
+    ldy TensDigitOffset     ; get the tens digit offset for the Score
+    lda Digits,Y            ; load the bit pattern from lookup table
+    and #$F0                ; mask/remove the graphics for the ones digit
+    sta ScoreP0Sprite       ; save the scoreP0 tens digit pattern in a variable
 
-    ldy OnesDigitOffset      ; get the ones digit offset for the Score
-    lda Digits,Y             ; load the digit bit pattern from lookup table
-    and #$0F                 ; mask/remove the graphics for the tens digit
-    ora ScoreP0Sprite        ; merge it with the saved tens digit sprite
-    sta ScoreP0Sprite        ; and save it
-    sta WSYNC                ; wait for the end of scanline
-    sta PF1                  ; update the playfield to display the Score sprite
+    ldy OnesDigitOffset     ; get the ones digit offset for the Score
+    lda Digits,Y            ; load the digit bit pattern from lookup table
+    and #$0F                ; mask/remove the graphics for the tens digit
+    ora ScoreP0Sprite       ; merge it with the saved tens digit sprite
+    sta ScoreP0Sprite       ; and save it
+    sta WSYNC               ; wait for the end of scanline
+    sta PF1                 ; update the playfield to display the Score sprite
 
-    ldy TensDigitOffset+1    ; get the left digit offset for the Timer
-    lda Digits,Y             ; load the digit pattern from lookup table
-    and #$F0                 ; mask/remove the graphics for the ones digit
-    sta ScoreP1Sprite        ; save the scoreP1 tens digit pattern in a variable
+    ldy TensDigitOffset+1   ; get the left digit offset for the Timer
+    lda Digits,Y            ; load the digit pattern from lookup table
+    and #$F0                ; mask/remove the graphics for the ones digit
+    sta ScoreP1Sprite       ; save the scoreP1 tens digit pattern in a variable
 
-    ldy OnesDigitOffset+1    ; get the ones digit offset for the Timer
-    lda Digits,Y             ; load digit pattern from the lookup table
-    and #$0F                 ; mask/remove the graphics for the tens digit
-    ora ScoreP1Sprite        ; merge with the saved tens digit graphics
-    sta ScoreP1Sprite        ; and save it
+    ldy OnesDigitOffset+1   ; get the ones digit offset for the Timer
+    lda Digits,Y            ; load digit pattern from the lookup table
+    and #$0F                ; mask/remove the graphics for the tens digit
+    ora ScoreP1Sprite       ; merge with the saved tens digit graphics
+    sta ScoreP1Sprite       ; and save it
 
-    jsr Sleep12Cycles        ; wastes some cycles
+    jsr Sleep12Cycles       ;  wastes some cycles
 
-    sta PF1                  ; update the playfield for Timer display
+    sta PF1                 ; update the playfield for Timer display
 
-    ldy ScoreP0Sprite        ; preload for the next scanline
-    sta WSYNC                ; wait for next scanline
+    ldy ScoreP0Sprite       ; preload for the next scanline
+    sta WSYNC               ; wait for next scanline
 
-    sty PF1                  ; update playfield for the score display
+    sty PF1                 ; update playfield for the score display
     inc TensDigitOffset
     inc TensDigitOffset+1
     inc OnesDigitOffset
-    inc OnesDigitOffset+1    ; increment all digits for the next line of data
+    inc OnesDigitOffset+1   ; increment all digits for the next line of data
 
-    jsr Sleep12Cycles        ; waste some cycles
+    jsr Sleep12Cycles       ; waste some cycles
 
-    dex                      ; X--
-    sta PF1                  ; update the playfield for the Timer display
-    bne .ScoreDigitLoop      ; if dex != 0, then branch to ScoreDigitLoop
+    dex                     ; X--
+    sta PF1                 ; update the playfield for the Timer display
+    bne .ScoreDigitLoop     ; if dex != 0, then branch to ScoreDigitLoop
 
     sta WSYNC
 
@@ -148,22 +154,20 @@ StartFrame:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Draw the remaining visible scanlines
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-    lda #$0F
-    sta COLUBK
-    REPEAT 192
-        sta WSYNC           ; Write any value to WSYNC memory-address to halt CPU
+    REPEAT 180
+        sta WSYNC          ; Write any value to WSYNC memory-address to halt CPU
     REPEND
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Display Overscan
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
     lda #2
-    sta VBLANK              ; turn on VBLANK again
+    sta VBLANK             ; turn on VBLANK again
     REPEAT 30
-        sta WSYNC           ; display recommended lines of VBlank Overscan
+        sta WSYNC          ; display recommended lines of VBlank Overscan
     REPEND
     lda #0
-    sta VBLANK              ; turn off VBLANK
+    sta VBLANK             ; turn off VBLANK
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Loop to next frame
