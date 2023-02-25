@@ -12,11 +12,18 @@
     seg.u Variables
     org $80
 
-ScoreP0         byte         ; 2-digit score of P0 stored as BCD
-ScoreP1         byte         ; 2-digit score of P1 stored as BCD
-Temp            byte         ; auxiliary variable to store temp values
-OnesDigitOffset word         ; lookup table offset for the score Ones digit
-TensDigitOffset word         ; lookup table offset for the score Tens digit
+ScoreP0         byte        ; 2-digit score of P0 stored as BCD
+ScoreP1         byte        ; 2-digit score of P1 stored as BCD
+Temp            byte        ; auxiliary variable to store temp values
+OnesDigitOffset word        ; lookup table offset for the score Ones digit
+TensDigitOffset word        ; lookup table offset for the score Tens digit
+ScoreP0Sprite   byte        ; store the sprite bit pattern for the scoreP0
+ScoreP1Sprite   byte        ; store the sprite bit pattern for the scoreP1
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Define constants
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+DIGITS_HEIGHT = 5           ; scoreboard digit height (#rows in lookup table)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Start our ROM code at memory address $F000
@@ -25,48 +32,138 @@ TensDigitOffset word         ; lookup table offset for the score Tens digit
     org $F000
 
 Reset:
-    CLEAN_START              ; call macro to reset memory and registers
+    CLEAN_START             ; call macro to reset memory and registers
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Initialize variables
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    lda #0
+    sta ScoreP0
+    sta ScoreP1
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Start the main display loop and frame rendering
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 StartFrame:
-    lda #$0F
-    sta COLUBK
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Display VSYNC and VBLANK
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
     lda #2
-    sta VBLANK               ; turn on VBLANK
-    sta VSYNC                ; turn on VSYNC
+    sta VBLANK              ; turn on VBLANK
+    sta VSYNC               ; turn on VSYNC
     REPEAT 3
-        sta WSYNC            ; display 3 recommended lines of VSYNC
+        sta WSYNC           ; display 3 recommended lines of VSYNC
     REPEND
     lda #0
-    sta VSYNC                ; turn off VSYNC
-    REPEAT 37
-        sta WSYNC            ; display the recommended lines of VBLANK
+    sta VSYNC               ; turn off VSYNC
+    REPEAT 36              ; 37 VBLANK scanlines minus the amount of scanlines that get used by calulations down below
+        sta WSYNC           ; display the recommended lines of VBLANK
     REPEND
     lda #0
-    sta VBLANK               ; turn off VBLANK
+    sta VBLANK              ; turn off VBLANK
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Calculations and tasks performed in VBlank
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    jsr CalcDigitOffset     ; calculate scoreboard digits lookup table offset
+
+    sta HMOVE               ; apply the horizontal offsets previously set
+    sta WSYNC
+
+    lda #0
+    sta VBLANK              ; turn off VBLANK
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Display the scoreboard lines
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    lda #0                   ; reset TIA registers before displaying the score
+    sta COLUBK
+    sta PF0
+    sta PF1
+    sta PF2
+    sta GRP0
+    sta GRP1
+    sta CTRLPF
+
+    lda #$1E
+    sta COLUPF               ; set the scoreboard playfield color with yellow
+
+    ldx #DIGITS_HEIGHT       ; start X counter with 5 (height of digits)
+
+.ScoreDigitLoop:
+    ldy TensDigitOffset      ; get the tens digit offset for the Score
+    lda Digits,Y             ; load the bit pattern from lookup table
+    and #$F0                 ; mask/remove the graphics for the ones digit
+    sta ScoreP0Sprite        ; save the scoreP0 tens digit pattern in a variable
+
+    ldy OnesDigitOffset      ; get the ones digit offset for the Score
+    lda Digits,Y             ; load the digit bit pattern from lookup table
+    and #$0F                 ; mask/remove the graphics for the tens digit
+    ora ScoreP0Sprite        ; merge it with the saved tens digit sprite
+    sta ScoreP0Sprite        ; and save it
+    sta WSYNC                ; wait for the end of scanline
+    sta PF1                  ; update the playfield to display the Score sprite
+
+    ldy TensDigitOffset+1    ; get the left digit offset for the Timer
+    lda Digits,Y             ; load the digit pattern from lookup table
+    and #$F0                 ; mask/remove the graphics for the ones digit
+    sta ScoreP1Sprite        ; save the scoreP1 tens digit pattern in a variable
+
+    ldy OnesDigitOffset+1    ; get the ones digit offset for the Timer
+    lda Digits,Y             ; load digit pattern from the lookup table
+    and #$0F                 ; mask/remove the graphics for the tens digit
+    ora ScoreP1Sprite        ; merge with the saved tens digit graphics
+    sta ScoreP1Sprite        ; and save it
+
+    jsr Sleep12Cycles        ; wastes some cycles
+
+    sta PF1                  ; update the playfield for Timer display
+
+    ldy ScoreP0Sprite        ; preload for the next scanline
+    sta WSYNC                ; wait for next scanline
+
+    sty PF1                  ; update playfield for the score display
+    inc TensDigitOffset
+    inc TensDigitOffset+1
+    inc OnesDigitOffset
+    inc OnesDigitOffset+1    ; increment all digits for the next line of data
+
+    jsr Sleep12Cycles        ; waste some cycles
+
+    dex                      ; X--
+    sta PF1                  ; update the playfield for the Timer display
+    bne .ScoreDigitLoop      ; if dex != 0, then branch to ScoreDigitLoop
+
+    sta WSYNC
+
+    lda #0
+    sta PF0
+    sta PF1
+    sta PF2
+    sta WSYNC
+    sta WSYNC
+    sta WSYNC
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Draw the 192 visible scanlines
+; Draw the remaining visible scanlines
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    lda #$0F
+    sta COLUBK
     REPEAT 192
-        sta WSYNC   ; Write any value to WSYNC memory-address to halt CPU
+        sta WSYNC           ; Write any value to WSYNC memory-address to halt CPU
     REPEND
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Display Overscan
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
     lda #2
-    sta VBLANK               ; turn on VBLANK again
+    sta VBLANK              ; turn on VBLANK again
     REPEAT 30
-        sta WSYNC            ; display recommended lines of VBlank Overscan
+        sta WSYNC           ; display recommended lines of VBlank Overscan
     REPEND
     lda #0
-    sta VBLANK               ; turn off VBLANK
+    sta VBLANK              ; turn off VBLANK
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Loop to next frame
@@ -90,7 +187,7 @@ StartFrame:
 ;;   - we can use right shifts to perform division by 2
 ;;   - for any number N, the value of (N/16)*5 is equal to (N/4)+(N/16)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-CalculateDigitOffset subroutine
+CalcDigitOffset subroutine
     ldx #1                   ; X register is the loop counter
 .PrepareScoreLoop            ; this will loop twice, first X=1, and then X=0
     lda ScoreP0,X            ; load A with ScoreP1 (X=1) or ScoreP0 (X=0)
@@ -113,6 +210,15 @@ CalculateDigitOffset subroutine
 
     dex                      ; X--
     bpl .PrepareScoreLoop    ; while X >= 0, loop to pass a second time
+    rts
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Subroutine that takes 12 cycles
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; jsr takes 6 cycles
+;; rts takes 6 cycles
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+Sleep12Cycles subroutine
     rts
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -219,7 +325,7 @@ Digits:
 ; Close off cartridge
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
     org $FFFC
-    .word Reset     ; Set reset-address
-    .word Reset     ; Set interrupt-address
+    .word Reset             ; Set reset-address
+    .word Reset             ; Set interrupt-address
 
 
