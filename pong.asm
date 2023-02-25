@@ -33,8 +33,8 @@ DigitsColor     byte        ; store the color of the score
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Define constants
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-P0_HEIGHT = 9               ; player0 sprite height (# rows in lookup table)
-P1_HEIGHT = 9               ; player1 sprite height (# rows in lookup table)
+P0_HEIGHT = 15               ; player0 sprite height (# rows in lookup table)
+P1_HEIGHT = 15               ; player1 sprite height (# rows in lookup table)
 DIGITS_HEIGHT = 5           ; scoreboard digit height (#rows in lookup table)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -49,13 +49,13 @@ Reset:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Initialize variables
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-    lda #68
-    sta P0XPos              
     lda #10
+    sta P0XPos              
+    lda #100
     sta P0YPos             
-    lda #62
+    lda #120
     sta P1XPos              
-    lda #83
+    lda #100
     sta P1YPos              
     lda #0                 
     sta ScoreP0
@@ -205,9 +205,41 @@ StartFrame:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Draw the remaining visible scanlines
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-    REPEAT 180
-        sta WSYNC          ; Write any value to WSYNC memory-address to halt CPU
-    REPEND
+GameVisibleLine:
+    ldx #175                  ; X counts the number of remaining scanlines
+.GameLineLoop:
+.InsideSpriteP0:
+    txa                      ; transfer X to A
+    sec                      ; make sure carry flag is set before subtraction
+    sbc P0YPos              ; subtract sprite Y-coordinate
+    cmp #P0_HEIGHT           ; are we inside the sprite height bounds?
+    bcc .DrawSpriteP0        ; if result < SpriteHeight, call the draw routine
+    lda #0                   ; else, set lookup index to zero
+.DrawSpriteP0:
+    tay                      ; load Y so we can work with the pointer
+    lda (P0SpritePtr),Y     ; load player0 bitmap data from lookup table
+    sta GRP0                 ; set graphics for player0
+    lda (P0ColorPtr),Y      ; load player color from lookup table
+    sta COLUP0               ; set color of player 0
+
+.InsideSpriteP1:
+    txa                      ; transfer X to A
+    sec                      ; make sure carry flag is set before subtraction
+    sbc P1YPos           ; subtract sprite Y-coordinate
+    cmp #P1_HEIGHT        ; are we inside the sprite height bounds?
+    bcc .DrawSpriteP1        ; if result < SpriteHeight, call the draw routine
+    lda #0                   ; else, set lookup index to zero
+.DrawSpriteP1:
+    tay                      ; load Y so we can work with the pointer
+    lda (P1SpritePtr),Y  ; load player1 bitmap data from lookup table
+    sta GRP1                 ; set graphics for player1
+    lda (P1ColorPtr),Y   ; load player color from lookup table
+    sta COLUP1               ; set color of player 1
+
+    sta WSYNC
+    dex                      ; X--
+    bne .GameLineLoop      ; repeat next main game scanline until finished
+    sta WSYNC                ; wait for a scanline
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Display Overscan
@@ -306,9 +338,29 @@ P0Sprite:
     .byte #%00001000         ;    #
     .byte #%00001000         ;    #
     .byte #%00001000         ;    #
+    .byte #%00001000         ;    #
+    .byte #%00001000         ;    #
+    .byte #%00001000         ;    #
+    .byte #%00001000         ;    #
+    .byte #%00001000         ;    #
+    .byte #%00001000         ;    #
+    .byte #%00001000         ;    #
+    .byte #%00001000         ;    #
+    .byte #%00001000         ;    #
+    .byte #%00001000         ;    #
 
 P1Sprite:
     .byte #%00000000         ;
+    .byte #%00001000         ;    #
+    .byte #%00001000         ;    #
+    .byte #%00001000         ;    #
+    .byte #%00001000         ;    #
+    .byte #%00001000         ;    #
+    .byte #%00001000         ;    #
+    .byte #%00001000         ;    #
+    .byte #%00001000         ;    #
+    .byte #%00001000         ;    #
+    .byte #%00001000         ;    #
     .byte #%00001000         ;    #
     .byte #%00001000         ;    #
     .byte #%00001000         ;    #
@@ -320,8 +372,28 @@ P0Color:
     .byte #$00
     .byte #$00
     .byte #$00
+    .byte #$00
+    .byte #$00
+    .byte #$00
+    .byte #$00
+    .byte #$00
+    .byte #$00
+    .byte #$00
+    .byte #$00
+    .byte #$00
+    .byte #$00
 
 P1Color:
+    .byte #$00
+    .byte #$00
+    .byte #$00
+    .byte #$00
+    .byte #$00
+    .byte #$00
+    .byte #$00
+    .byte #$00
+    .byte #$00
+    .byte #$00
     .byte #$00
     .byte #$00
     .byte #$00
