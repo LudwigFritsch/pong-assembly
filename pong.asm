@@ -12,11 +12,19 @@
     seg.u Variables
     org $80
 
+P0XPos          byte        ; player 0 x-position
+P0YPos          byte        ; player 0 y-position
+P1XPos          byte        ; player 1 x-position
+P1YPos          byte        ; player 1 y-position
 ScoreP0         byte        ; 2-digit score of P0 stored as BCD
 ScoreP1         byte        ; 2-digit score of P1 stored as BCD
 Temp            byte        ; auxiliary variable to store temp values
 OnesDigitOffset word        ; lookup table offset for the score Ones digit
 TensDigitOffset word        ; lookup table offset for the score Tens digit
+P0SpritePtr     word        ; pointer to player0 sprite lookup table
+P0ColorPtr      word        ; pointer to player0 color lookup table
+P1SpritePtr     word        ; pointer to player1 sprite lookup table
+P1ColorPtr      word        ; pointer to player1 color lookup table
 ScoreP0Sprite   byte        ; store the sprite bit pattern for the scoreP0
 ScoreP1Sprite   byte        ; store the sprite bit pattern for the scoreP1
 BGColor         byte        ; store the color of the background
@@ -25,6 +33,8 @@ DigitsColor     byte        ; store the color of the score
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Define constants
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+P0_HEIGHT = 9               ; player0 sprite height (# rows in lookup table)
+P1_HEIGHT = 9               ; player1 sprite height (# rows in lookup table)
 DIGITS_HEIGHT = 5           ; scoreboard digit height (#rows in lookup table)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -39,13 +49,44 @@ Reset:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Initialize variables
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-    lda #0                  ; initialize scores with 0
+    lda #68
+    sta P0XPos              
+    lda #10
+    sta P0YPos             
+    lda #62
+    sta P1XPos              
+    lda #83
+    sta P1YPos              
+    lda #0                 
     sta ScoreP0
     sta ScoreP1
     lda #$00
     sta DigitsColor         ; initialize digits color to dark grey
     lda #$0F
     sta BGColor             ; initialize background color to dark grey
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Initialize the pointers to the correct lookup table adresses
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    lda #<P0Sprite
+    sta P0SpritePtr         ; lo-byte pointer for p0 sprite lookup table
+    lda #>P0Sprite
+    sta P0SpritePtr+1       ; hi-byte pointer for p0 sprite lookup table
+
+    lda #<P0Color
+    sta P0ColorPtr          ; lo-byte pointer for p0 color lookup table
+    lda #>P0Color
+    sta P0ColorPtr+1        ; hi-byte pointer for p0 color lookup table
+
+    lda #<P1Sprite
+    sta P1SpritePtr         ; lo-byte pointer for p1 sprite lookup table
+    lda #>P1Sprite
+    sta P1SpritePtr+1       ; hi-byte pointer for p1 sprite lookup table
+
+    lda #<P1Color
+    sta P1ColorPtr          ; lo-byte pointer for p1 color lookup table
+    lda #>P1Color
+    sta P1ColorPtr+1        ; hi-byte pointer for p1 color lookup table
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Start the main display loop and frame rendering
@@ -63,7 +104,7 @@ StartFrame:
     REPEND
     lda #0
     sta VSYNC               ; turn off VSYNC
-    REPEAT 36              ; 37 VBLANK scanlines minus the amount of scanlines that get used by calulations down below
+    REPEAT 34               ; 37 VBLANK scanlines minus the amount of scanlines that get used by calulations down below
         sta WSYNC           ; display the recommended lines of VBLANK
     REPEND
     lda #0
@@ -72,10 +113,19 @@ StartFrame:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Calculations and tasks performed in VBlank
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    lda P0XPos
+    ldy #0
+    jsr SetObjectXPos       ; set player0 horizontal position
+
+    lda P1XPos
+    ldy #1
+    jsr SetObjectXPos       ; set player1 horizontal position
+
+    sta WSYNC
+
     jsr CalcDigitOffset     ; calculate scoreboard digits lookup table offset
 
     sta HMOVE               ; apply the horizontal offsets previously set
-    sta WSYNC
 
     lda #0
     sta VBLANK              ; turn off VBLANK
@@ -94,6 +144,7 @@ StartFrame:
     sta GRP0
     sta GRP1
     sta CTRLPF
+    sta WSYNC
 
     ldx #DIGITS_HEIGHT      ; start X counter with 5 (height of digits)
 
@@ -175,6 +226,27 @@ StartFrame:
     jmp StartFrame
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Subroutine to handle object horizontal position with fine offset
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; A is the target x-coordinate position in pixels of our object
+;; Y is the object type (0:player0, 1:player1, 2:missile0, 3:missile1, 4:ball)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+SetObjectXPos subroutine
+    sta WSYNC                ; start a fresh new scanline
+    sec                      ; make sure carry-flag is set before subtracion
+.Div15Loop
+    sbc #15                  ; subtract 15 from accumulator
+    bcs .Div15Loop           ; loop until carry-flag is clear
+    eor #7                   ; handle offset range from -8 to 7
+    asl
+    asl
+    asl
+    asl                      ; four shift lefts to get only the top 4 bits
+    sta HMP0,Y               ; store the fine offset to the correct HMxx
+    sta RESP0,Y              ; fix object position in 15-step increment
+    rts
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Subroutine to handle scoreboard digits to be displayed on the screen
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; The scoreboard is stored using BCD, so the display shows hex numbers.
@@ -228,6 +300,34 @@ Sleep12Cycles subroutine
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Declare ROM lookup tables
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+P0Sprite:
+    .byte #%00000000         ;
+    .byte #%00001000         ;    #
+    .byte #%00001000         ;    #
+    .byte #%00001000         ;    #
+    .byte #%00001000         ;    #
+
+P1Sprite:
+    .byte #%00000000         ;
+    .byte #%00001000         ;    #
+    .byte #%00001000         ;    #
+    .byte #%00001000         ;    #
+    .byte #%00001000         ;    #
+
+P0Color:
+    .byte #$00
+    .byte #$00
+    .byte #$00
+    .byte #$00
+    .byte #$00
+
+P1Color:
+    .byte #$00
+    .byte #$00
+    .byte #$00
+    .byte #$00
+    .byte #$00
+
 Digits:
     .byte %01110111          ; ### ###
     .byte %01010101          ; # # # #
